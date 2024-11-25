@@ -19,10 +19,6 @@ import torch.nn as nn
 
 import wandb
 
-from torchvision.datasets import MNIST
-from torchvision import transforms 
-from torchvision.utils import make_grid, save_image
-from torch.utils.data import DataLoader
 from tqdm import tqdm 
 from skimage.metrics import peak_signal_noise_ratio
 
@@ -80,9 +76,6 @@ model = UNetModel(
 model.load_state_dict(torch.load(os.path.join(base_path,"model.pt")))
 model.to(device)
 model.eval() 
-
-
-
 
 val_dataset = flowers102(root="dataset/flowers",split="val")
 
