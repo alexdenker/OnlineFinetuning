@@ -1,0 +1,23 @@
+diffusion:
+  beta_max: 20
+  beta_min: 0.1
+  sde: VPSDE
+model:
+  attention_resolutions: []
+  channel_mult:
+  - 1
+  - 2
+  - 4
+  in_channels: 3
+  max_period: 0.005
+  model_channels: 64
+  num_res_blocks: 1
+  out_channels: 3
+sampling:
+  batch_size: 8
+  eps: 1.0e-05
+  num_steps: 1000
+training:
+  batch_size: 32
+  lr: 5.0e-06
+  num_epochs: 1000
