@@ -5,15 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import os 
 import yaml 
-import time 
-
-
-import wandb
-
+import time
 from tqdm import tqdm 
-from skimage.metrics import peak_signal_noise_ratio
 
-from src import UNetModel, VPSDE, ScaleModel, Superresolution, flowers102
+from src import UNetModel, VPSDE, ScaleModel, Superresolution, flowers102, finetuning_score_based_loss_fn
 
 cfg = {
     'model': 
@@ -24,7 +19,7 @@ cfg = {
      "num_res_blocks": 1,
      "attention_resolutions": [],
      "max_period": 0.005},
-    'batch_size': 12,
+    'batch_size': 32,
     'time_steps_min': 200,
     'time_steps_max': 200,
     'lr': 1e-4,
@@ -34,7 +29,7 @@ cfg = {
     'clip_gradient': True,
     'clip_value': 1.0, 
     "batch_size_val": 12,
-    "init_scale": 4e-3,
+    "init_scale": 1e-2,
     "time_embedding_dim": 256,
     'val_img_idx': 0,
     'device': "cuda",
@@ -106,6 +101,29 @@ class CondSDE(torch.nn.Module):
 
         self.y_noise = y_noise
     
+    def predict_noise(self, xt, ts):
+        with torch.no_grad():
+            s_pretrained = self.model(xt, ts)
+
+            cond = torch.repeat_interleave(self.y_noise,  dim=0, repeats=x0.shape[0])
+
+            if cfg["use_tweedie"]:
+                marginal_prob_mean = self.sde.marginal_prob_mean_scale(ts)
+                marginal_prob_std = self.sde.marginal_prob_std(ts)
+
+                x0hat = (xt + marginal_prob_std[:,None,None,None]**2*s_pretrained)/marginal_prob_mean[:,None,None,None]
+                log_grad = -lkhd.log_likelihood_grad(x0hat, cond) 
+
+            else:
+                log_grad = -lkhd.log_likelihood_grad(xt[-1], cond) 
+            
+        log_grad_scaling = self.time_model(ts)[:, None, None]
+
+        h_trans = self.cond_model(torch.cat([log_grad, xt], dim=1), ts) 
+        h_trans = h_trans - log_grad_scaling*log_grad 
+
+        return s_pretrained + h_trans
+
     def forward(self, ts, x0):
         """
         Implement EM solver
@@ -158,205 +176,93 @@ class CondSDE(torch.nn.Module):
         return x_t, kldiv_term.detach()
 
 
-wandb_kwargs = {
-        "project": "online_finetuning",
-        "entity": "alexanderdenker",
-        "config": cfg,
-        "name": "rejection-sampling fine-tuning",
-        "mode": "disabled",  # "online", #"disabled", #"online" ,
-        "settings": wandb.Settings(code_dir=""),
-        "dir": "",
-    }
-with wandb.init(**wandb_kwargs) as run:
 
-    batch_size = cfg["batch_size"]
-    sde_model = CondSDE(model=model, sde=sde, y_noise=y_noise)
+batch_size = cfg["batch_size"]
+sde_model = CondSDE(model=model, sde=sde, y_noise=y_noise)
 
-    optimizer = torch.optim.Adam(list(sde_model.cond_model.parameters()) + list(sde_model.time_model.parameters()), lr=cfg["lr"])
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.9)
+optimizer = torch.optim.Adam(list(sde_model.cond_model.parameters()) + list(sde_model.time_model.parameters()), lr=cfg["lr"])
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.9)
 
-    x_target = x_gt.repeat(batch_size, 1, 1, 1)
+x_target = x_gt.repeat(batch_size, 1, 1, 1)
 
-    fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(14,6))
+fig, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(14,6))
 
-    ax1.set_title("Ground truth")
-    ax1.imshow((x_gt[0].permute(1,2,0).cpu() + 1.)/2., cmap="gray")
-    ax1.axis("off")
+ax1.set_title("Ground truth")
+ax1.imshow((x_gt[0].permute(1,2,0).cpu() + 1.)/2., cmap="gray")
+ax1.axis("off")
 
-    ax2.set_title("y")
-    ax2.imshow((y_noise[0].permute(1,2,0).cpu().numpy() + 1.)/2., cmap="gray")
-    ax2.axis("off")
+ax2.set_title("y")
+ax2.imshow((y_noise[0].permute(1,2,0).cpu().numpy() + 1.)/2., cmap="gray")
+ax2.axis("off")
 
-    ax3.set_title("Adjoint(y)")
-    ax3.imshow((Aty[0].permute(1,2,0).cpu() +1.)/2., cmap="gray")
-    ax3.axis("off")
+ax3.set_title("Adjoint(y)")
+ax3.imshow((Aty[0].permute(1,2,0).cpu() +1.)/2., cmap="gray")
+ax3.axis("off")
 
-    wandb.log({f"data": wandb.Image(plt)})
-    plt.close()
+plt.show()
 
-    wandb.define_metric("custom_step")
 
-    wandb.define_metric("val/mse_to_target_val", step_metric="custom_step")
-    wandb.define_metric("val/psnr_of_mean_sample", step_metric="custom_step")
-    wandb.define_metric("validation", step_metric="custom_step")
-    wandb.define_metric("time_scaling", step_metric="custom_step")
-    wandb.define_metric("samples", step_metric="custom_step")
+for step in tqdm(range(cfg["num_steps"])):
+    sde_model.cond_model.train()
+    optimizer.zero_grad()
 
-    for step in tqdm(range(cfg["num_steps"])):
-        sde_model.cond_model.train()
-        optimizer.zero_grad()
+    x0 = torch.randn((batch_size, 3, 64, 64)).to("cuda")
+    if cfg["time_steps_min"] == cfg["time_steps_max"]:
+        t_size = cfg["time_steps_min"]
+    else:
+        t_size = np.random.randint(cfg["time_steps_min"], cfg["time_steps_max"])
+    ts = np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
+    ts = torch.from_numpy(ts).to(device)
+    time_start = time.time()
+    
+    xt, kldiv_term = sde_model.forward(ts, x0)
 
-        x0 = torch.randn((batch_size, 3, 64, 64)).to("cuda")
-        if cfg["time_steps_min"] == cfg["time_steps_max"]:
-            t_size = cfg["time_steps_min"]
+    fig, axes = plt.subplots(1,8, figsize=(13,6))
+    for idx, ax in enumerate(axes.ravel()):
+        if idx == 0:
+            img_show = (x_gt[0].permute(1,2,0).cpu().numpy() + 1.)/2.
+            ax.imshow(np.clip(img_show, 0,1))
+            ax.set_title("GT")
+        elif idx == 1:
+            img_show = (y_noise[0].permute(1,2,0).cpu().numpy() + 1.)/2.
+            ax.imshow(np.clip(img_show, 0,1))
+            ax.set_title("y (4x ds)")
         else:
-            t_size = np.random.randint(cfg["time_steps_min"], cfg["time_steps_max"])
-        ts = np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
-        ts = torch.from_numpy(ts).to(device)
-        time_start = time.time()
-        
-        xt, kldiv_term = sde_model.forward(ts, x0)
+            img_show = (xt[-1][idx-1].permute(1,2,0).detach().cpu().numpy() + 1.)/2.
+            ax.imshow(np.clip(img_show, 0,1))
+            ax.set_title(f"Sample {idx-1}")
+        ax.axis("off")
+
+    plt.show()
+
+    ts_test = torch.linspace(1, 0, 100).to(device)
+
+    scaling = sde_model.time_model(ts_test)
+    plt.figure()
+    plt.plot(scaling[:,0].detach().cpu().numpy())
+    plt.show()
 
 
-        # here we compute the log likelihood
-        cond = torch.repeat_interleave(y_noise,  dim=0, repeats=batch_size)
-        data_fit = -torch.sum((lkhd.A(xt[-1]) - cond)**2, dim=(1,2,3))
-        loss_data = 1/2*1/noise_level**2*data_fit
-        
-        # compute importance weights
-        log_iw = data_fit - kldiv_term
+    # here we compute the log likelihood
+    cond = torch.repeat_interleave(y_noise,  dim=0, repeats=batch_size)
+    data_fit = -torch.sum((lkhd.A(xt[-1]) - cond)**2, dim=(1,2,3))
+    loss_data = 1/2*1/noise_level**2*data_fit
+    print("Loss data: ", loss_data.mean())
+    # compute importance weights
+    log_iw = data_fit - kldiv_term
 
-        print(log_iw)
-        exit()
+    print(log_iw)   
 
-        print(loss)
-        # filter out to large loss values 
-        loss_filtered = loss[loss < 50000]
-        if len(loss_filtered) > int(0.3*batch_size):
-            loss_filtered = torch.var(loss_filtered)
-            print("var loss: ", loss_filtered)
-            original_loss = (loss_data[loss < 50000] - kldiv_term1[loss < 50000]).mean()
+    ## TODO: resample according to importance weights
+    x0 = xt[-1]
 
+    print(x0.shape)
 
-            mse_target = torch.mean((xt[-1] - x_target)**2)
-            psnrs = [] 
-            for i in range(xt[-1].shape[0]):
-                psnr = peak_signal_noise_ratio(x_target.detach().cpu().numpy()[i], xt[-1].detach().cpu().numpy()[i], data_range=2.)
-                psnrs.append(psnr)
-            print("mean PSNR (train): ", np.mean(psnrs))
+    ## do a few steps with the supervised score matching loss 
+    for train_iter in range(30):
+        loss = finetuning_score_based_loss_fn(x0, sde_model, sde)
+        loss.backward()
+        print(loss.item())
+        optimizer.step()
 
-            time_start = time.time() 
-            loss_filtered.backward()
-            #print("Calculate Gradient, adjoint SDE: ", time.time() - time_start, "s")
-            if cfg['clip_gradient']:
-                torch.nn.utils.clip_grad_norm_(sde_model.cond_model.parameters(), cfg['clip_value'])
-                torch.nn.utils.clip_grad_norm_(sde_model.time_model.parameters(), cfg['clip_value'])
-            optimizer.step()
-
-            scheduler.step()
-            wandb.log(
-                        {"train/mean_psnr_of_samples": psnr,
-                        "train/mse_to_target": mse_target.item(),
-                        "train/vargrad_loss": loss_filtered.item(),
-                        "train/original_finetuning_loss": original_loss.item(),
-                        "train/loss_data_consistency": loss_data.mean().item(),
-                        "train/loss_kldiv_term1": kldiv_term1.mean().item(),
-                        "train/loss_kldiv_term1": kldiv_term1.mean().item(),
-                        "train/loss_kldiv_term2": kldiv_term2.mean().item(),
-                        "train/loss_kldiv_term3": kldiv_term3.mean().item(),
-                        "train/loss_kldiv": loss_kl.mean().item(),
-                        "train/learning_rate": float(scheduler.get_last_lr()[0]),
-                        "step": step}
-                    ) 
-        else:
-            print("Too many loss values were filtered out. Draw new samples")
-
-        if step % cfg["log_img_freq"] == 0 and step > 0:
-            
-            val_log_dir = {}
-
-            sde_model.cond_model.eval()
-
-            ts_test = torch.linspace(1, 0, 100).to(device)
-
-            scaling = sde_model.time_model(ts_test)
-            plt.figure()
-            plt.plot(scaling[:,0].detach().cpu().numpy())
-            val_log_dir["time_scaling"] = wandb.Image(plt)
-            #wandb.log({f"time_scaling": wandb.Image(plt)})
-            plt.close()
-
-            x_target_val = x_gt.repeat(cfg["batch_size_val"], 1, 1, 1)
-
-            with torch.no_grad():
-                ts_fine = np.sqrt(np.linspace(0, (1. - 1e-3)**2, cfg["t_size_val"]))
-                ts_fine = torch.from_numpy(ts_fine).to(device)
-
-                x0 = torch.randn((cfg["batch_size_val"], 3, 64, 64)).to(device)
-
-                xt, _, _, _ = sde_model.forward(ts_fine, x0)
-
-            mse_target = torch.mean((xt[-1] - x_target_val)**2)
-
-            fig, axes = plt.subplots(1,8, figsize=(13,6))
-            for idx, ax in enumerate(axes.ravel()):
-                if idx == 0:
-                    ax.imshow((x_gt[0].permute(1,2,0).cpu().numpy() + 1.)/2.)
-                    ax.set_title("GT")
-                elif idx == 1:
-                    ax.imshow((y_noise[0].permute(1,2,0).cpu().numpy() + 1.)/2.)
-                    ax.set_title("y (4x ds)")
-                else:
-                    ax.imshow((xt[-1][idx-1].permute(1,2,0).detach().cpu().numpy() + 1.)/2.)
-                    ax.set_title(f"Sample {idx-1}")
-                ax.axis("off")
-
-            val_log_dir["samples"] = wandb.Image(plt)
-            plt.close()
-     
-            psnrs = [] 
-            for i in range(xt[-1].shape[0]):
-                psnr = peak_signal_noise_ratio(x_target.detach().cpu().numpy()[i], xt[-1].detach().cpu().numpy()[i], data_range=2.)
-                psnrs.append(psnr)
-            print("mean PSNR (val): ", np.mean(psnrs))
-
-
-            mean_sample = xt[-1].cpu().mean(dim=0)
-
-            print(x_target_val.shape, mean_sample.shape)
-            psnr = peak_signal_noise_ratio(x_target_val[0,:,:,:].cpu().numpy(), mean_sample[:,:,:].numpy(), data_range=2.)
-            
-            diff_to_mean = torch.mean((xt[-1].cpu() - mean_sample.unsqueeze(0))**2, dim=(1,2,3))
-            diff_to_gt = torch.mean((x_target_val.cpu() - mean_sample)**2, dim=(1,2,3))
-            fig, ax = plt.subplots(1,1)
-
-            ax.hist(diff_to_mean.ravel().numpy(), bins="auto", alpha=0.75)
-            ax.set_title("| x - x_mean|")
-            ax.vlines(diff_to_gt.numpy(), 0, 30, label="| x_mean - x_gt|", colors='r')
-            ax.legend()
-            val_log_dir["diff"] = wandb.Image(plt)
-            #wandb.log({f"samples": wandb.Image(plt)})
-            plt.close() 
-
-            fig, (ax1, ax2) = plt.subplots(1,2, figsize=(16,6))
-
-            im = ax1.imshow((x_target[0].permute(1,2,0).cpu() + 1.)/2., cmap="gray")
-            ax1.axis("off")
-            ax1.set_title("Ground truth")
-            fig.colorbar(im, ax=ax1)
-
-            im = ax2.imshow((mean_sample.permute(1,2,0).cpu() + 1.)/2., cmap="gray")
-            ax2.axis("off")
-            ax2.set_title("Mean Sample")
-            fig.colorbar(im, ax=ax2)
-
-            val_log_dir["validation"] = wandb.Image(plt)
-            #wandb.log({f"validation": wandb.Image(plt)})
-            plt.close()
-
-            val_log_dir["val/psnr_of_mean_sample"] = psnr
-            val_log_dir["val/mean_psnr_of_samples"] = np.mean(psnrs)
-            val_log_dir["val/mse_to_target_val"] = mse_target.item()
-            val_log_dir["custom_step"] = step
-            wandb.log(val_log_dir) 
-        
+    scheduler.step()
