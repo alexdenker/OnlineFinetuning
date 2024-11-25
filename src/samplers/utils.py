@@ -33,9 +33,10 @@ def Euler_Maruyama_sde_predictor(
         datafitscale = loss.pow(-1)
 
     drift, diffusion = sde.sde(x, time_step)
+    diffusion_expanded = diffusion.view(*diffusion.shape, *(1,) * (s.ndim - diffusion.ndim))
 
-    x_mean = x - (drift - diffusion[:, None, None, None].pow(2)*s)*step_size
-    noise = torch.sqrt(diffusion[:, None, None, None].pow(2)*step_size)*torch.randn_like(x)
+    x_mean = x - (drift - diffusion_expanded.pow(2)*s)*step_size
+    noise = torch.sqrt(diffusion_expanded.pow(2)*step_size)*torch.randn_like(x)
 
     x = x_mean + noise 
 

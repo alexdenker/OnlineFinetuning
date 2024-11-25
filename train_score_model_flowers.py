@@ -1,15 +1,11 @@
 
 
 import numpy as np 
-import matplotlib.pyplot as plt 
 import os 
 import yaml 
-
 import torch 
 
-from torchvision.datasets import MNIST
-from torchvision import transforms 
-from torchvision.utils import make_grid, save_image
+from torchvision.utils import save_image
 from torch.utils.data import DataLoader
 from tqdm import tqdm 
 
