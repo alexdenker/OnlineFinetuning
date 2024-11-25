@@ -203,9 +203,8 @@ plt.show()
 
 
 for step in tqdm(range(cfg["num_steps"])):
-    sde_model.cond_model.train()
-    optimizer.zero_grad()
-
+    sde_model.cond_model.eval()
+    
     x0 = torch.randn((batch_size, 3, 64, 64)).to("cuda")
     if cfg["time_steps_min"] == cfg["time_steps_max"]:
         t_size = cfg["time_steps_min"]
@@ -213,9 +212,9 @@ for step in tqdm(range(cfg["num_steps"])):
         t_size = np.random.randint(cfg["time_steps_min"], cfg["time_steps_max"])
     ts = np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
     ts = torch.from_numpy(ts).to(device)
-    time_start = time.time()
     
-    xt, kldiv_term = sde_model.forward(ts, x0)
+    with torch.no_grad():
+        xt, kldiv_term = sde_model.forward(ts, x0)
 
     fig, axes = plt.subplots(1,8, figsize=(13,6))
     for idx, ax in enumerate(axes.ravel()):
@@ -257,9 +256,11 @@ for step in tqdm(range(cfg["num_steps"])):
     x0 = xt[-1]
 
     print(x0.shape)
-
+    sde_model.cond_model.train()
     ## do a few steps with the supervised score matching loss 
     for train_iter in range(30):
+        optimizer.zero_grad()
+
         loss = finetuning_score_based_loss_fn(x0, sde_model, sde)
         loss.backward()
         print(loss.item())
