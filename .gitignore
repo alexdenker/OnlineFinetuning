@@ -3,4 +3,5 @@
 
 model_weights/*.png
 wandb/
-dataset/
+
+*.pyc
