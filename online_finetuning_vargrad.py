@@ -28,11 +28,6 @@ from skimage.metrics import peak_signal_noise_ratio
 
 from src import UNetModel, VPSDE, ScaleModel, Superresolution, flowers102
 
-
-
-
-
-
 cfg = {
     'model': 
     { "in_channels": 6,

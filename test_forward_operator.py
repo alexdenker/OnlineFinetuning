@@ -1,19 +1,7 @@
 
-
-
-
-import numpy as np 
 import matplotlib.pyplot as plt 
-import os 
-import yaml 
-
 import torch 
 
-from torchvision.datasets import MNIST
-from torchvision import transforms 
-from torchvision.utils import make_grid, save_image
-from torch.utils.data import DataLoader
-from tqdm import tqdm 
 
 from src import Superresolution, flowers102
 
@@ -28,10 +16,6 @@ lkhd = Superresolution(scale=4, sigma_y=0.00, device="cuda")
 y = lkhd.sample(x)
 
 Aty = lkhd.A_adjoint(y) 
-
-print(y.shape)
-
-
 
 print(y.shape)
 
@@ -56,8 +40,6 @@ ax3.imshow(Aty.permute(1,2,0).cpu().numpy(),vmin=0, vmax=1)
 
 
 plt.show()
-
-
 
 # test adjoint 
 
