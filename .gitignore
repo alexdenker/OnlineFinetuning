@@ -3,5 +3,6 @@
 
 model_weights/*.png
 wandb/
+old/ 
 
 *.pyc
