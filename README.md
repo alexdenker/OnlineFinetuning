@@ -20,6 +20,7 @@ $$ - \ln p_\text{lkhd}(y|x) = \frac{1}{2 \sigma_\eta^2} \| A(x) - y \|_2^2$$
 ## Conditioning Diffusion Models
 
 We assume we have a forward SDE 
+
 $$ d X_t = f_t(X_t) dt + \sigma_t dW_t, \quad X_0 \sim p_\text{data} := p_0 $$
 
 and the corresponding (unconditional) reverse SDE
