@@ -52,8 +52,19 @@ Intuitively the two parts of the objective function can be understood as
 ### Scaling to higher dimension
 Naive minisation of the stochastic optimal control objective is generally not possible, as the full trajectory $(x_t)_{t \in [0,T]} \sim \mathbb{Q}$ has to be kept in memory for backpropagation. 
 
-We note that the objective can also be expressed as the KL divergence between
+We note that the objective can also be expressed as the KL divergence between the uncontrolled path measure $\mathbb{P}$ and the controlled path measure $\mathbb{Q}$. We can then use a log-variance loss to recover the gradients, i.e.,
 
+$$  	D_\text{KL}(\mathbb{Q} || \mathbb{P}) \Rightarrow \nabla_h D_\text{KL}(\mathbb{Q}||\mathbb{P}) = \nabla_h \text{Var}_\mathbb{W}\left(\log \frac{d \mathbb{Q}}{d \mathbb{P}}\right)\Bigg|_{\mathbb{W} = \mathbb{Q}}, $$
+
+where the RND can be expressed as 
+
+$$ \log \frac{d \mathbb{Q}}{d \mathbb{P}}(H_{0:T}) = -\frac{1}{2} \int_0^T \sigma_t^2 \| h_t(H_t) \|_2^2 dt + \int_0^T \sigma_t^2 (g_t^\top h_t)(H_t) dt +  \int_0^T \sigma_t h_t^\top (H_t)d W_t - \ln p_\text{lkhd}(y| H_0)$$
+
+with $H_{0:T}$ from 
+
+$$ d X_t = [f_t(X_t) - \sigma_t^2 (s_\theta(X_t, t) + g(X_t, t))]dt + \sigma_t dW_t, \quad X_T \sim p_T $$
+
+in practice we choose $g_t = \text{stopgrad}(h_t)$. The log variance loss allows us to detach the gradients from the trajectory. 
 
 ## Example
 
