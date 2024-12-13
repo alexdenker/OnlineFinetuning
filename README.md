@@ -41,6 +41,9 @@ where the goal is to train the additional control $h_\phi(x_t, t)$. Let the path
 
 $$ \min_\phi \mathbb{E}_\mathbb{Q}[\frac{1}{2} \int_0^T \sigma_t^2 \| h_\phi(x_t, t) \|_2^2 ] - \mathbb{E}_{\mathbb{Q}_0}[\log p_\text{lkhd}(y|x_0)] $$
 
+$$ \min_\phi E_Q[\frac{1}{2} \int_0^T \sigma_t^2 \| h_\phi(x_t, t) \|_2^2 ] - E_{Q_0}[\log p_\text{lkhd}(y|x_0)] $$
+
+
 For the inverse problem above with the additive Gaussian noise model this reduces to 
 
 $$ \min_\phi \mathbb{E}_\mathbb{Q}\left[\frac{1}{2} \int_0^T \sigma_t^2 \| h_\phi(x_t, t) \|_2^2 \right] + \mathbb{E}_{\mathbb{Q}_0}\left[\frac{1}{2 \sigma_\eta^2} \| A(x_0) - y \|_2^2\right] $$
