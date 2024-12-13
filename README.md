@@ -39,7 +39,7 @@ $$ d X_t = [f_t(X_t) - \sigma_t^2 (s_\theta(X_t, t) + h_\phi(X_t, t))]dt + \sigm
 
 where the goal is to train the additional control $h_\phi(x_t, t)$. Let the path measure of this conditional reverse SDE be defined as $\mathbb{Q}$. This can be achieved by minimising the following loss function
 
-$$ \min_\phi \mathbb{E}_\mathbb{Q}\left[\frac{1}{2} \int_0^T \sigma_t^2 \| h_\phi(x_t, t) \|_2^2 \right] - \mathbb{E}_{\mathbb{Q}_0}[\log p_\text{lkhd}(y|x_0)] $$
+$$ \min_\phi \mathbb{E}_\mathbb{Q}[\frac{1}{2} \int_0^T \sigma_t^2 \| h_\phi(x_t, t) \|_2^2 ] - \mathbb{E}_{\mathbb{Q}_0}[\log p_\text{lkhd}(y|x_0)] $$
 
 For the inverse problem above with the additive Gaussian noise model this reduces to 
 
