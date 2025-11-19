@@ -85,7 +85,11 @@ class CondSDE(torch.nn.Module):
 
         self.cond_model.to("cuda")
         self.cond_model.train() 
-
+        # for some models the time embedding and init scale is just 
+        # cfg["time_embedding_dim"] 
+        # cfg["init_scale"]
+        # and not cfg["model"]["time_embedding_dim"], cfg["model"]["init_scale"]
+        # adjust accordingly
         self.time_model = ScaleModel(time_embedding_dim=cfg["model"]["time_embedding_dim"],
                                     max_period=cfg_dict["model"]["max_period"], 
                                     dim_out=1,
