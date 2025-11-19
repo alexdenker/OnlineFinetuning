@@ -26,7 +26,6 @@ with open(os.path.join(base_path, "report.yaml"), "r") as f:
     cfg_dict = yaml.safe_load(f)
 
 #cond_base_path = "cond_weights_var_grad"
-cond_base_path = "/home/alexdenker/projects/OnlineFinetuning/self_supervised_weights_rebuttal/iterative_flowers_targetimg=3_lam=1.0_kl=0.0_initScale=0.002/9sptamwc"
 #cond_base_path = "cond_weights_rtb"
 #cond_base_path = "cond_weights_adjoint_sde"
 cond_base_path = "cond_weights_dpok"
