@@ -11,6 +11,7 @@ from collections import OrderedDict
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 
 from .nn import avg_pool_nd, conv_nd, linear, normalization, timestep_embedding, zero_module
 
@@ -180,6 +181,12 @@ class ResBlock(TimestepBlock):
             self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
     def forward(self, x, emb):
+        if self.use_checkpoint and x.requires_grad:
+            return checkpoint.checkpoint(self._forward, x, emb, use_reentrant=False)
+        else:
+            return self._forward(x, emb)
+    
+    def _forward(self, x, emb):
         """
         Apply the block to a Tensor, conditioned on a timestep embedding.
 
@@ -244,6 +251,12 @@ class AttentionBlock(nn.Module):
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
     def forward(self, x, encoder_out=None):
+        if self.use_checkpoint and x.requires_grad:
+            return checkpoint.checkpoint(self._forward, x, encoder_out, use_reentrant=False)
+        else:
+            return self._forward(x, encoder_out)    
+
+    def _forward(self, x, encoder_out=None):
         b, c, *spatial = x.shape
         qkv = self.qkv(self.norm(x).view(b, c, -1))
         if encoder_out is not None:
@@ -549,7 +562,7 @@ class ScaleModel(nn.Module):
         self.linear3.weight.data.fill_(0.0)
         self.linear3.bias.data.fill_(self.init_scale)
 
-        self.act = nn.ReLU() 
+        self.act = nn.SiLU() #nn.ReLU() 
 
     def forward(self, t):
         t_emb = timestep_embedding(t, self.time_embedding_dim, max_period=self.max_period)
