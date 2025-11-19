@@ -81,9 +81,14 @@ model.load_state_dict(torch.load(os.path.join(base_path,"model.pt")))
 model.to(device)
 model.eval() 
 
-val_dataset = flowers102(root="dataset/flowers",split="val")
 
-x_gt = val_dataset[cfg["val_img_idx"]][0].unsqueeze(0).to(device)
+if os.path.isfile(os.path.join(f"model_weights/flower_idx_{cfg['val_img_idx']}.pt")):
+    x_gt = torch.load(os.path.join(f"model_weights/flower_idx_{cfg['val_img_idx']}.pt")).to(device)
+else:
+    print("Loading flowers dataset...")
+    val_dataset = flowers102(root="dataset/flowers",split="val")
+    x_gt = val_dataset[cfg["val_img_idx"]][0].unsqueeze(0).to(device)
+    torch.save(x_gt, os.path.join(f"model_weights/flower_idx_{cfg['val_img_idx']}.pt"))
 
 noise_level = 0.05
 lkhd = Superresolution(scale=2, sigma_y=noise_level, device=device)
