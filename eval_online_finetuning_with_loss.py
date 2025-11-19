@@ -28,8 +28,8 @@ with open(os.path.join(base_path, "report.yaml"), "r") as f:
 #cond_base_path = "cond_weights_var_grad"
 #cond_base_path = "cond_weights_rtb"
 #cond_base_path = "cond_weights_adjoint_sde"
-cond_base_path = "cond_weights_dpok"
-
+#cond_base_path = "cond_weights_dpok"
+cond_base_path = "online_finetune_var_grad/20251119-210608"
 
 with open(os.path.join(cond_base_path, "report.yaml"), "r") as f:
     cfg = yaml.safe_load(f)
@@ -86,10 +86,10 @@ class CondSDE(torch.nn.Module):
         self.cond_model.to("cuda")
         self.cond_model.train() 
 
-        self.time_model = ScaleModel(time_embedding_dim=cfg["time_embedding_dim"],
+        self.time_model = ScaleModel(time_embedding_dim=cfg["model"]["time_embedding_dim"],
                                     max_period=cfg_dict["model"]["max_period"], 
                                     dim_out=1,
-                                    init_scale=cfg["init_scale"])
+                                    init_scale=cfg["model"]["init_scale"])
         self.time_model.load_state_dict(torch.load(os.path.join(cond_base_path,"time_model.pt")))
 
         self.time_model.to(device)
