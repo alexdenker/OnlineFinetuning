@@ -1,10 +1,10 @@
+"""
+Evaluation of the stochastic optimal control loss:
+    L = E_{x_[0:T]}[ 1/2/sigma_y^2 || A(x_0) - y_noise ||^2  + int_0^T sigma(t)^2 || h(x_t, t) ||^2 dt] 
 
 
 """
-Implementation of the VarGrad loss. Change the direction of the SDE: going from 0 -> T
-with x0 ~ N(0, I) and xT ~ data distribution
- 
-"""
+
 
 import torch
 import numpy as np 
@@ -175,7 +175,6 @@ batch_size = 64
 with torch.no_grad():
     ts_fine = np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
 
-    #ts_fine = np.linspace(0, 1-1e-3, t_size) #np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
     ts_fine = torch.from_numpy(ts_fine).to(device)
 
     x0 = torch.randn((batch_size, 3, 64, 64)).to(device)
@@ -193,89 +192,3 @@ with torch.no_grad():
 
 print("SOC loss on samples: ", loss.item())
 
-xt = (xt + 1.) / 2.
-xt = torch.clamp(xt, 0, 1)
-
-xt_grid = make_grid(xt, nrow=4)
-
-
-save_image(xt_grid, "online_flower_samples.png")
-save_image((x_gt[0] + 1.)/2., "online_flower_gt.png")
-save_image((y_noise[0] + 1.)/2., "online_flower_y.png")
-
-
-print(xt_grid.shape)
-
-plt.figure()
-plt.imshow(xt_grid.permute(1,2,0).cpu().numpy())
-plt.axis("off")
-plt.show()
-
-
-num_samples = 1000
-sampl_per_batch = 20 
-
-
-sample_list = []
-
-for i in tqdm(range(num_samples // sampl_per_batch)):
-
-    with torch.no_grad():
-        ts_fine = np.sqrt(np.linspace(0, (1. - 1e-3)**2, t_size))
-        ts_fine = torch.from_numpy(ts_fine).to(device)
-
-        x0 = torch.randn((sampl_per_batch, 3, 64, 64)).to(device)
-
-        xt = sde_model.forward(ts_fine, x0)
-        xt = torch.clamp(xt, -1, 1)
-        sample_list.append(xt)
-
-
-samples = torch.cat(sample_list)
-print(samples.shape)
-
-
-
-y_sim = lkhd.A(samples)
-
-print(y_sim.shape, y_noise.shape)
-data_consistency = torch.sum((y_sim - y_noise)**2, dim=(1,2,3))
-
-print("data consistency: ", data_consistency.shape)
-
-#fig, (ax1) = plt.subplots(1,1, figsize=(16,4))
-
-
-#ax1.hist(data_consistency.cpu().numpy().ravel(), bins="auto", alpha=0.75)
-#ax1.set_title("|| A(x) - y_noise||")
-#ax1.vlines(data_consistency_gt.cpu().numpy(), 0, 10, label="|| A(x_gt) - y_noise||", colors='r')
-#ax1.legend()
-
-#plt.show()
-
-
-fig, axes = plt.subplots(6,2)
-
-for idx, ax in enumerate(axes.ravel()):
-
-    im = ax.imshow((samples[idx].permute(1,2,0).cpu() + 1.)/2.)
-    ax.axis("off")
-    #ax1.set_title("Ground truth")
-
-plt.show()
-
-
-mean_sample = torch.mean(samples, axis=0)
-
-
-fig, (ax1, ax2) = plt.subplots(1,2)
-
-im = ax1.imshow((x_gt[0].permute(1,2,0).cpu() + 1.)/2., cmap="gray")
-ax1.axis("off")
-ax1.set_title("Ground truth")
-
-im = ax2.imshow((mean_sample.permute(1,2,0).cpu() + 1.)/2., cmap="gray")
-ax2.axis("off")
-ax2.set_title("Mean Sample")
-
-plt.show()
