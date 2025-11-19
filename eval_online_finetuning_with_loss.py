@@ -101,23 +101,20 @@ class CondSDE(torch.nn.Module):
         Implement EM solver
 
         """
-        x_t = [x0] 
-        #print("time steps: ", ts)
+        x_t = torch.clone(x0) 
         kldiv_term1 = torch.zeros(1).to(x0.device)
         kldiv_term2 = torch.zeros(1).to(x0.device)
         kldiv_term3 = torch.zeros(1).to(x0.device)
 
         for t0, t1 in zip(ts[:-1], ts[1:]):
-            #print(t0, t1)
             dt = t1 - t0 
-            #print(dt)
+
             dW = torch.randn_like(x0) * torch.sqrt(dt)
             ones_vec = torch.ones(x0.shape[0], device=x_gt.device)
             t = ones_vec * t0
-            #print("Time step: ", t0, " to model: ", 1-t0)
-            with torch.no_grad():
-                s_pretrained = self.model(x_t[-1], 1 - t)
 
+            with torch.no_grad():
+                s_pretrained = self.model(x_t, 1 - t)
             cond = torch.repeat_interleave(self.y_noise,  dim=0, repeats=x0.shape[0])
 
             with torch.no_grad():
@@ -125,41 +122,31 @@ class CondSDE(torch.nn.Module):
                     marginal_prob_mean = self.sde.marginal_prob_mean_scale(1-t)
                     marginal_prob_std = self.sde.marginal_prob_std(1-t)
 
-                    x0hat = (x_t[-1] + marginal_prob_std[:,None,None,None]**2*s_pretrained)/marginal_prob_mean[:,None,None,None]
-                    log_grad = -lkhd.log_likelihood_grad(x0hat, cond) #forward_op.trafo_adjoint(forward_op.trafo(x0hat) - cond)
-
+                    x0hat = (x_t + marginal_prob_std[:,None,None,None]**2*s_pretrained)/marginal_prob_mean[:,None,None,None]
+                    log_grad = -lkhd.log_likelihood_grad(x0hat, cond) 
                 else:
-                    log_grad = -lkhd.log_likelihood_grad(xt[-1], cond) #forward_op.trafo_adjoint(forward_op.trafo(x_t[-1]) - cond)
-            
+                    log_grad = -lkhd.log_likelihood_grad(x_t, cond) 
             log_grad_scaling = self.time_model(1. - t)[:, None, None]
-            #print(log_grad_scaling.shape) #.view(t.shape[0], 1, 28, 28)
-            h_trans = self.cond_model(torch.cat([log_grad, x_t[-1]], dim=1), 1 - t) 
-            h_trans = h_trans - log_grad_scaling*log_grad 
 
-
+            h_trans = self.cond_model(torch.cat([log_grad, x_t], dim=1), 1 - t) 
+            h_trans = h_trans - log_grad_scaling*log_grad
 
             s = s_pretrained + h_trans
-            drift, diffusion = self.sde.sde(x_t[-1], 1 - t) # diffusion = sqrt(beta)
-            # drift = - 0.5 beta x
-            f_t =  - drift + diffusion[:, None, None, None].pow(2)*s
+            drift, diffusion = self.sde.sde(x_t, 1 - t) # diffusion = sqrt(beta)
 
-            #print("Base model norm: ", torch.norm(s_pretrained))
-            #print("Cond model norm: ", torch.norm(h_trans))
-            #print("Diffusion: ", diffusion.pow(2).shape)
+            f_t =  - drift + diffusion[:, None, None, None].pow(2)*s
 
             f_sq = (h_trans ** 2).sum(dim=(1,2,3))
             g_f = (h_trans * h_trans.detach()).sum(dim=(1,2,3))
             f_w = (h_trans * dW).sum(dim=(1,2,3))
-
-            #print("f_sq: ", f_sq.shape, g_f.shape, f_w.shape)
 
             kldiv_term1 = kldiv_term1 - 0.5 * f_sq * diffusion.pow(2) * dt
             kldiv_term2 = kldiv_term2 + diffusion.pow(2) * dt * g_f 
             kldiv_term3 = kldiv_term3 + diffusion * f_w 
 
             g_t = diffusion[:, None, None, None]
-            x_new = x_t[-1] + f_t * dt + g_t * dW
-            x_t.append(x_new.detach())
+            x_t = x_t + f_t * dt + g_t * dW
+            x_t = x_t.detach()
             
         return x_t, kldiv_term1, kldiv_term2, kldiv_term3
 
@@ -180,7 +167,6 @@ with torch.no_grad():
     x0 = torch.randn((batch_size, 3, 64, 64)).to(device)
 
     xt, kldiv_term1, _, _ = sde_model.forward(ts_fine, x0)
-    xt = xt[-1]
 
     data_fit = torch.sum((lkhd.A(xt) - y_noise)**2, dim=(1,2,3))
     loss_data = 1/2*1/noise_level**2*data_fit
@@ -188,7 +174,6 @@ with torch.no_grad():
     print("loss_data: ", loss_data.mean().item())
     print("kldiv_term: ", kldiv_term1.mean().item())
     loss = (loss_data - kldiv_term1).mean()
-
 
 print("SOC loss on samples: ", loss.item())
 
