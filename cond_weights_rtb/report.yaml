@@ -1,0 +1,23 @@
+batch_size: 14
+batch_size_val: 16
+clip_gradient: true
+clip_value: 1.0
+device: cuda
+init_scale: 0.005
+lr: 1.0e-05
+model:
+  attention_resolutions: []
+  channel_mult:
+  - 1
+  - 2
+  in_channels: 6
+  max_period: 0.005
+  model_channels: 32
+  num_res_blocks: 1
+  out_channels: 3
+num_steps: 3000
+time_embedding_dim: 256
+time_steps_max: 240
+time_steps_min: 200
+use_tweedie: true
+val_img_idx: 3
